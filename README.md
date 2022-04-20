@@ -12,4 +12,8 @@ npm run dev
 
 ```
 
+With Grayscale: <br>
 ![](./ss1.png) <br>
+
+Without Grayscale: <br>
+![](./ss2.png) <br>

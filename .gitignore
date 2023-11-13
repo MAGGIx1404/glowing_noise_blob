@@ -1,3 +1,329 @@
 /node_modules
 /dist
 /.cache
+
+
+
+
+// Ensure ThreeJS is in global scope for the 'examples/'
+global.THREE = require('three')
+const { lerp } = require('canvas-sketch-util/math')
+const random = require('canvas-sketch-util/random')
+const palettes = require('nice-color-palettes')
+const eases = require('eases')
+const glslify = require('glslify')
+const { GUI } = require('dat.gui');
+
+// Include any additional ThreeJS examples below
+require('three/examples/js/controls/OrbitControls')
+
+const canvasSketch = require('canvas-sketch')
+const { Vector2 } = require('three')
+
+const data = {
+  shouldUpdate: false,
+  shouldReset: false,
+  palette: [],
+  spikeLength: 1,
+  spikeDetail: 0,
+  reset: (d) => { }
+};
+
+const settings = {
+  // dimensions: [1024, 1024],
+  animate: true,
+  context: 'webgl',
+  attributes: { antialias: true },
+  data
+}
+
+const sketch = ({ context, data }) => {
+  /*
+  *
+  * SHADERS
+  * 
+  */
+  const vertexShader = glslify(["#define GLSLIFY 1\n\n    #define PI 3.1415926538\n    varying vec2 vUv;\n    varying float uvNoise;\n    uniform float u_time;\n    uniform vec2 u_intersectUV;\n    uniform float u_mouseRadius;\n    uniform sampler2D u_canvasTexture;\n    uniform vec2 u_impulse;\n    uniform float u_spikeCount;\n    uniform float u_spikeLength;\n    uniform float u_sceneRotationX;\n    uniform float u_sceneRotationY;\n\n    //\n// Description : Array and textureless GLSL 2D/3D/4D simplex\n//               noise functions.\n//      Author : Ian McEwan, Ashima Arts.\n//  Maintainer : ijm\n//     Lastmod : 20110822 (ijm)\n//     License : Copyright (C) 2011 Ashima Arts. All rights reserved.\n//               Distributed under the MIT License. See LICENSE file.\n//               https://github.com/ashima/webgl-noise\n//\n\nvec4 mod289(vec4 x) {\n  return x - floor(x * (1.0 / 289.0)) * 289.0; }\n\nfloat mod289(float x) {\n  return x - floor(x * (1.0 / 289.0)) * 289.0; }\n\nvec4 permute(vec4 x) {\n     return mod289(((x*34.0)+1.0)*x);\n}\n\nfloat permute(float x) {\n     return mod289(((x*34.0)+1.0)*x);\n}\n\nvec4 taylorInvSqrt(vec4 r)\n{\n  return 1.79284291400159 - 0.85373472095314 * r;\n}\n\nfloat taylorInvSqrt(float r)\n{\n  return 1.79284291400159 - 0.85373472095314 * r;\n}\n\nvec4 grad4(float j, vec4 ip)\n  {\n  const vec4 ones = vec4(1.0, 1.0, 1.0, -1.0);\n  vec4 p,s;\n\n  p.xyz = floor( fract (vec3(j) * ip.xyz) * 7.0) * ip.z - 1.0;\n  p.w = 1.5 - dot(abs(p.xyz), ones.xyz);\n  s = vec4(lessThan(p, vec4(0.0)));\n  p.xyz = p.xyz + (s.xyz*2.0 - 1.0) * s.www;\n\n  return p;\n  }\n\n// (sqrt(5) - 1)/4 = F4, used once below\n#define F4 0.309016994374947451\n\nfloat snoise(vec4 v)\n  {\n  const vec4  C = vec4( 0.138196601125011,  // (5 - sqrt(5))/20  G4\n                        0.276393202250021,  // 2 * G4\n                        0.414589803375032,  // 3 * G4\n                       -0.447213595499958); // -1 + 4 * G4\n\n// First corner\n  vec4 i  = floor(v + dot(v, vec4(F4)) );\n  vec4 x0 = v -   i + dot(i, C.xxxx);\n\n// Other corners\n\n// Rank sorting originally contributed by Bill Licea-Kane, AMD (formerly ATI)\n  vec4 i0;\n  vec3 isX = step( x0.yzw, x0.xxx );\n  vec3 isYZ = step( x0.zww, x0.yyz );\n//  i0.x = dot( isX, vec3( 1.0 ) );\n  i0.x = isX.x + isX.y + isX.z;\n  i0.yzw = 1.0 - isX;\n//  i0.y += dot( isYZ.xy, vec2( 1.0 ) );\n  i0.y += isYZ.x + isYZ.y;\n  i0.zw += 1.0 - isYZ.xy;\n  i0.z += isYZ.z;\n  i0.w += 1.0 - isYZ.z;\n\n  // i0 now contains the unique values 0,1,2,3 in each channel\n  vec4 i3 = clamp( i0, 0.0, 1.0 );\n  vec4 i2 = clamp( i0-1.0, 0.0, 1.0 );\n  vec4 i1 = clamp( i0-2.0, 0.0, 1.0 );\n\n  //  x0 = x0 - 0.0 + 0.0 * C.xxxx\n  //  x1 = x0 - i1  + 1.0 * C.xxxx\n  //  x2 = x0 - i2  + 2.0 * C.xxxx\n  //  x3 = x0 - i3  + 3.0 * C.xxxx\n  //  x4 = x0 - 1.0 + 4.0 * C.xxxx\n  vec4 x1 = x0 - i1 + C.xxxx;\n  vec4 x2 = x0 - i2 + C.yyyy;\n  vec4 x3 = x0 - i3 + C.zzzz;\n  vec4 x4 = x0 + C.wwww;\n\n// Permutations\n  i = mod289(i);\n  float j0 = permute( permute( permute( permute(i.w) + i.z) + i.y) + i.x);\n  vec4 j1 = permute( permute( permute( permute (\n             i.w + vec4(i1.w, i2.w, i3.w, 1.0 ))\n           + i.z + vec4(i1.z, i2.z, i3.z, 1.0 ))\n           + i.y + vec4(i1.y, i2.y, i3.y, 1.0 ))\n           + i.x + vec4(i1.x, i2.x, i3.x, 1.0 ));\n\n// Gradients: 7x7x6 points over a cube, mapped onto a 4-cross polytope\n// 7*7*6 = 294, which is close to the ring size 17*17 = 289.\n  vec4 ip = vec4(1.0/294.0, 1.0/49.0, 1.0/7.0, 0.0) ;\n\n  vec4 p0 = grad4(j0,   ip);\n  vec4 p1 = grad4(j1.x, ip);\n  vec4 p2 = grad4(j1.y, ip);\n  vec4 p3 = grad4(j1.z, ip);\n  vec4 p4 = grad4(j1.w, ip);\n\n// Normalise gradients\n  vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));\n  p0 *= norm.x;\n  p1 *= norm.y;\n  p2 *= norm.z;\n  p3 *= norm.w;\n  p4 *= taylorInvSqrt(dot(p4,p4));\n\n// Mix contributions from the five corners\n  vec3 m0 = max(0.6 - vec3(dot(x0,x0), dot(x1,x1), dot(x2,x2)), 0.0);\n  vec2 m1 = max(0.6 - vec2(dot(x3,x3), dot(x4,x4)            ), 0.0);\n  m0 = m0 * m0;\n  m1 = m1 * m1;\n  return 49.0 * ( dot(m0*m0, vec3( dot( p0, x0 ), dot( p1, x1 ), dot( p2, x2 )))\n               + dot(m1*m1, vec2( dot( p3, x3 ), dot( p4, x4 ) ) ) ) ;\n\n  }\n\n    void main () {\n      vUv = uv;\n      vec3 pos = position.xyz;\n      vec4 canvasColor = texture2D(u_canvasTexture, vUv);\n\n      uvNoise = snoise(vec4(position.xyz*u_spikeCount,10.0)) * u_spikeLength + (u_spikeLength - 1.0);\n      // uvNoise *= noise(vec4(position.xyz*1.0,10.0)) * 3.0 + 2.0;\n      float noiseLength = uvNoise * 0.39; // * canvasColor.r;\n      pos += normal * noiseLength;\n      if (uvNoise > 0.0) {\n        float intensity = uvNoise * 5.0;\n\n        // horizontal\n        float impulseX = u_impulse.x;\n        // float normalisedRotationX = mod(abs(u_sceneRotationX / u_sceneRotationX), 2.0);\n        // if (normalisedRotationX > 1.0) { impulseX *= -1.0; }\n        float angleH = atan(pos.z,pos.x);\n        float hLength = length(vec2(pos.x,pos.z));\n        float xpos = cos(angleH+impulseX*intensity) * hLength;\n        float zPos = sin(angleH+impulseX*intensity) * hLength;\n\n        // vertical\n        float zPos2 = sin(angleH+u_impulse.x*intensity-u_sceneRotationY) * hLength;\n        float angleV = atan(zPos2,pos.y) - u_impulse.y * intensity;\n        float direction = 1.0;\n        float vLength = length(vec2(pos.y,zPos2));\n        float yPos = cos(angleV) * vLength;\n        pos = vec3(xpos,yPos,zPos);\n      }\n      \n      gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);\n    }\n  "])
+
+
+  const fragmentShader = glslify(["#define GLSLIFY 1\n\n    varying vec2 vUv;\n    varying float uvNoise;\n    uniform vec3 u_color;\n    uniform vec3 u_color2;\n    uniform vec3 u_skinColor;\n    uniform float u_time;\n    // uniform vec2 intersectUV;\n    uniform float u_mouseRadius;\n    uniform sampler2D u_canvasTexture;\n    uniform float u_spikeLength;\n    uniform float u_useStripes;\n\n    //\n// Description : Array and textureless GLSL 2D/3D/4D simplex\n//               noise functions.\n//      Author : Ian McEwan, Ashima Arts.\n//  Maintainer : ijm\n//     Lastmod : 20110822 (ijm)\n//     License : Copyright (C) 2011 Ashima Arts. All rights reserved.\n//               Distributed under the MIT License. See LICENSE file.\n//               https://github.com/ashima/webgl-noise\n//\n\nvec3 mod289(vec3 x) {\n  return x - floor(x * (1.0 / 289.0)) * 289.0;\n}\n\nvec4 mod289(vec4 x) {\n  return x - floor(x * (1.0 / 289.0)) * 289.0;\n}\n\nvec4 permute(vec4 x) {\n     return mod289(((x*34.0)+1.0)*x);\n}\n\nvec4 taylorInvSqrt(vec4 r)\n{\n  return 1.79284291400159 - 0.85373472095314 * r;\n}\n\nfloat snoise(vec3 v)\n  {\n  const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;\n  const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);\n\n// First corner\n  vec3 i  = floor(v + dot(v, C.yyy) );\n  vec3 x0 =   v - i + dot(i, C.xxx) ;\n\n// Other corners\n  vec3 g = step(x0.yzx, x0.xyz);\n  vec3 l = 1.0 - g;\n  vec3 i1 = min( g.xyz, l.zxy );\n  vec3 i2 = max( g.xyz, l.zxy );\n\n  //   x0 = x0 - 0.0 + 0.0 * C.xxx;\n  //   x1 = x0 - i1  + 1.0 * C.xxx;\n  //   x2 = x0 - i2  + 2.0 * C.xxx;\n  //   x3 = x0 - 1.0 + 3.0 * C.xxx;\n  vec3 x1 = x0 - i1 + C.xxx;\n  vec3 x2 = x0 - i2 + C.yyy; // 2.0*C.x = 1/3 = C.y\n  vec3 x3 = x0 - D.yyy;      // -1.0+3.0*C.x = -0.5 = -D.y\n\n// Permutations\n  i = mod289(i);\n  vec4 p = permute( permute( permute(\n             i.z + vec4(0.0, i1.z, i2.z, 1.0 ))\n           + i.y + vec4(0.0, i1.y, i2.y, 1.0 ))\n           + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));\n\n// Gradients: 7x7 points over a square, mapped onto an octahedron.\n// The ring size 17*17 = 289 is close to a multiple of 49 (49*6 = 294)\n  float n_ = 0.142857142857; // 1.0/7.0\n  vec3  ns = n_ * D.wyz - D.xzx;\n\n  vec4 j = p - 49.0 * floor(p * ns.z * ns.z);  //  mod(p,7*7)\n\n  vec4 x_ = floor(j * ns.z);\n  vec4 y_ = floor(j - 7.0 * x_ );    // mod(j,N)\n\n  vec4 x = x_ *ns.x + ns.yyyy;\n  vec4 y = y_ *ns.x + ns.yyyy;\n  vec4 h = 1.0 - abs(x) - abs(y);\n\n  vec4 b0 = vec4( x.xy, y.xy );\n  vec4 b1 = vec4( x.zw, y.zw );\n\n  //vec4 s0 = vec4(lessThan(b0,0.0))*2.0 - 1.0;\n  //vec4 s1 = vec4(lessThan(b1,0.0))*2.0 - 1.0;\n  vec4 s0 = floor(b0)*2.0 + 1.0;\n  vec4 s1 = floor(b1)*2.0 + 1.0;\n  vec4 sh = -step(h, vec4(0.0));\n\n  vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;\n  vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;\n\n  vec3 p0 = vec3(a0.xy,h.x);\n  vec3 p1 = vec3(a0.zw,h.y);\n  vec3 p2 = vec3(a1.xy,h.z);\n  vec3 p3 = vec3(a1.zw,h.w);\n\n//Normalise gradients\n  vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));\n  p0 *= norm.x;\n  p1 *= norm.y;\n  p2 *= norm.z;\n  p3 *= norm.w;\n\n// Mix final noise value\n  vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);\n  m = m * m;\n  return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1),\n                                dot(p2,x2), dot(p3,x3) ) );\n  }\n\n    void main() {\n      // float mouseDistance = length(vUv-intersectUV);\n      float sine = sin(vUv.x * 3.14);\n      float n = snoise(vec3(vUv*6.0, u_time*0.02)) * 0.5 + 0.5;\n      float darkness = (uvNoise / u_spikeLength + 1.0);\n      vec3 col = mix(u_color,u_color2,n);\n      vec4 canvasColor = texture2D(u_canvasTexture, vUv);\n      col = col * (sine * 0.6 + 0.4) * darkness;\n\n      if (u_useStripes > 0.0) {\n        vec3 lineColor = vec3(1.0,1.0,1.0);\n        float index = 0.0;\n        for (int i=0; i < 20; i++) {\n          float stepDown = 1.0 - step(-0.31+n*0.2+index*0.1,uvNoise);\n          float stepUp = step(-0.36+n*0.2+index*0.1,uvNoise);\n          col = mix(col,lineColor,stepDown*stepUp*0.5);\n          index += 1.0;\n        }\n      }\n\n      gl_FragColor = vec4(col,1.0);\n      // gl_FragColor = vec4(mix(u_skinColor,col,canvasColor.r*0.5),1.0);\n\n      // gl_FragColor = canvasColor;\n    }\n  "])
+
+  /*
+  *
+  * DRAW INTO CANVAS
+  *
+  */
+  const canvasSize = 512
+  const mouseCanvas = document.createElement('canvas')
+  mouseCanvas.width = canvasSize
+  mouseCanvas.height = canvasSize
+  const ctx = mouseCanvas.getContext('2d')
+  ctx.fillStyle = 'white'
+  ctx.fillRect(0, 0, canvasSize, canvasSize)
+  const canvasTexture = new THREE.Texture(mouseCanvas)
+  canvasTexture.needsUpdate = true
+
+  const drawDot = (x, y, angle = 0) => {
+    const radius = 20
+    ctx.beginPath()
+    ctx.fillStyle = 'rgba(0,0,0,1)'
+    ctx.arc(x, y, radius, 0, 2 * Math.PI)
+    // draw across the seam
+    if (x - radius < 0) {
+      ctx.arc(canvasSize + x, y, radius, 0, 2 * Math.PI)
+    } else if (x + radius > canvasSize) {
+      ctx.arc(x - canvasSize, y, radius, 0, 2 * Math.PI)
+    }
+
+    ctx.fill()
+    ctx.closePath()
+    canvasTexture.needsUpdate = true
+  }
+
+  /*
+  *
+  * SET UP DEFAULTS
+  *
+  */
+  const createDefaults = () => {
+    const colorSeeds = [495948, 234144, 382666, 946739, 253862, 729250, 12290, 958027, 277064, 339463]
+    const spikeSeeds = [614884, 383036, 191802, 967721, 384540, 111465] // 33.19, 18.6, 4.16, 38.08, 9.01, 3.0 
+    const spikeLengthSeeds = [533299, 122798] // long, short
+    random.setSeed(random.pick(spikeSeeds))
+    const spikeCount = random.range(1.35, 40)
+    data.spikeDetail = spikeCount
+
+    random.setSeed(undefined)
+    random.setSeed(random.pick(spikeLengthSeeds))
+    const spikeLength = random.range(1.0, 1.4)
+    data.spikeLength = spikeLength
+
+    random.setSeed(undefined)
+    random.setSeed(random.pick(colorSeeds))
+    const palette = random.pick(palettes)
+    data.palette = palette
+  }
+  createDefaults()
+  /*
+  *
+  * SET UP THREE.JS
+  *
+  */
+  // Create a renderer
+  const renderer = new THREE.WebGLRenderer({
+    canvas: context.canvas
+  })
+
+  // WebGL background color
+  renderer.setClearColor('hsl(0,0%,95%)', 1)
+
+  // Setup a camera
+  const camera = new THREE.OrthographicCamera()
+  camera.position.set(2, 1.3, -4)
+  camera.lookAt(new THREE.Vector3())
+
+  // Setup your scene
+  const scene = new THREE.Scene()
+
+  // Setup a geometry
+  const geometry = new THREE.SphereGeometry(0.8, 256, 256)
+  let mesh = null
+
+  const createMesh = (reset = false) => {
+    if (mesh != null) {
+      scene.remove(mesh);
+    }
+
+    if (reset) {
+      createDefaults()
+    }
+
+    const { spikeDetail, spikeLength, palette } = data
+
+    mesh = new THREE.Mesh(
+      geometry,
+      new THREE.ShaderMaterial({
+        fragmentShader,
+        vertexShader,
+        uniforms: {
+          u_time: { value: 0 },
+          u_mouseRadius: { value: 0.07 },
+          u_color: { value: new THREE.Color(palette[0]) },
+          u_color2: { value: new THREE.Color(palette[3]) },
+          u_skinColor: { value: new THREE.Color(random.pick(palette)) },
+          u_intersectUV: { value: new THREE.Vector2() },
+          u_impulse: { value: new THREE.Vector2() },
+          u_spikeCount: { value: spikeDetail },
+          u_spikeLength: { value: spikeLength },
+          u_useStripes: { value: 0 },
+          u_sceneRotationX: { value: 0 },
+          u_sceneRotationY: { value: 0 },
+          u_canvasTexture: { type: 't', value: canvasTexture }
+        }
+      })
+    )
+    scene.add(mesh)
+  }
+  createMesh()
+
+  /*
+  *
+  * INTERACTION
+  *
+  */
+  let isMouseDown = false
+  let mouseList = [new THREE.Vector2(1, 1)]
+  const raycaster = new THREE.Raycaster()
+  const currentImpulse = new THREE.Vector2()
+
+  const getInputPosition = (e) => {
+    let eX = e.clientX
+    let eY = e.clientY
+    if (e.touches && e.touches.length > 0) {
+      // touch device
+      var touch = e.touches[0]
+      eX = touch.pageX
+      eY = touch.pageY
+    }
+    return {
+      x: eX,
+      y: eY
+    }
+  }
+  const onMouseMove = (e) => {
+    if (isMouseDown) {
+      const { x, y } = getInputPosition(e)
+      const mouseX = (x / window.innerWidth) * 2 - 1
+      const mouseY = - (y / window.innerHeight) * 2 + 1
+      const lastMouse = mouseList.length > 0 ? mouseList[mouseList.length - 1] : new THREE.Vector2(mouseX, mouseY)
+      mouseList.push(new THREE.Vector2(mouseX, mouseY))
+      // check if scene is rotated upside down
+      const direction = ((scene.rotation.x + Math.PI / 2) / Math.PI) % 2 > 1 ? -1 : 1
+      currentImpulse.x += direction * (mouseX - lastMouse.x) * 0.5
+      currentImpulse.y -= (mouseY - lastMouse.y) * 0.5
+    }
+  }
+  const onMouseDown = (e) => {
+    isMouseDown = true
+    const { x, y } = getInputPosition(e)
+    const mouseX = (x / window.innerWidth) * 2 - 1
+    const mouseY = - (y / window.innerHeight) * 2 + 1
+    mouseList = [new THREE.Vector2(mouseX, mouseY)]
+  }
+  const onMouseUp = (e) => {
+    isMouseDown = false
+  }
+
+  window.addEventListener('mousemove', onMouseMove, false);
+  window.addEventListener('mousedown', onMouseDown, false);
+  window.addEventListener('mouseup', onMouseUp, false);
+  window.addEventListener('touchmove', onMouseMove, false);
+  window.addEventListener('touchstart', onMouseDown, false);
+  window.addEventListener('touchend', onMouseUp, false);
+
+  /*
+  *
+  * RUNTIME
+  *
+  */
+  return {
+    // Handle resize events here
+    resize({ pixelRatio, viewportWidth, viewportHeight }) {
+      renderer.setPixelRatio(pixelRatio)
+      renderer.setSize(viewportWidth, viewportHeight, false)
+      const aspect = viewportWidth / viewportHeight;
+
+      // Ortho zoom
+      const zoom = aspect < 1 ? 2.5 : 1.5;
+
+      // Bounds
+      camera.left = -zoom * aspect;
+      camera.right = zoom * aspect;
+      camera.top = zoom;
+      camera.bottom = -zoom;
+
+      // Near/Far
+      camera.near = -100;
+      camera.far = 100;
+
+      // Set position & look at world center
+      camera.position.set(0, 0, zoom);
+      camera.lookAt(new THREE.Vector3());
+
+      // Update the camera
+      camera.updateProjectionMatrix();
+    },
+    // Update & render your scene here
+    render({ time, data }) {
+      // recreate mesh if data prop has changed
+      if (data.shouldReset) {
+        data.shouldReset = false
+        data.shouldUpdate = false
+        createMesh(true)
+      }
+      if (data.shouldUpdate) {
+        data.shouldUpdate = false
+        createMesh()
+      }
+      // draw on sphere stuff
+      const mouse = mouseList[mouseList.length - 1]
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(scene.children)
+      let intersectUV = new THREE.Vector2(-2, -2)
+      if (intersects.length > 0) {
+        intersectUV = intersects[0].uv
+        // drawDot(intersectUV.x * canvasSize, (1 - intersectUV.y) * canvasSize, mouseAngle)
+      }
+
+      // rotate scene
+      currentImpulse.x *= 0.9
+      currentImpulse.y *= 0.9
+      scene.rotation.y += 0.003 + currentImpulse.x
+      scene.rotation.x += currentImpulse.y
+
+      // update uniforms
+      mesh.material.uniforms.u_time.value = time
+      mesh.material.uniforms.u_intersectUV.value = intersectUV
+      mesh.material.uniforms.u_canvasTexture.value = canvasTexture
+      mesh.material.uniforms.u_impulse.value = currentImpulse
+      mesh.material.uniforms.u_sceneRotationX.value = scene.rotation.x
+      mesh.material.uniforms.u_sceneRotationY.value = scene.rotation.y
+
+      // renderrrrr
+      renderer.render(scene, camera)
+    },
+    // Dispose of events & renderer for cleaner hot-reloading
+    unload() {
+      renderer.dispose()
+    }
+  }
+};
+
+(async () => {
+  const manager = await canvasSketch(sketch, settings);
+
+  // Can disable this entirely
+  const useGUI = true;
+  if (useGUI) {
+    const gui = new GUI();
+
+    // Setup parameters
+    gui.add(data, "spikeDetail", 1, 50, 0.01).name('Detail').onChange(() => {
+      data.shouldUpdate = true
+    }).listen()
+    gui.add(data, "spikeLength", 1, 1.5, 0.01).name('Size').onChange(() => {
+      data.shouldUpdate = true
+    }).listen()
+    gui.add(data, "reset").name("Regenerate").onChange(() => {
+      data.shouldReset = true
+    })
+  }
+
+  // Helper functions
+  function addColor(gui, ...args) {
+    return gui.addColor(...args).onChange(() => {
+      data.shouldUpdate = true
+      // render()
+    })
+  }
+})()
